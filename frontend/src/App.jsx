@@ -299,12 +299,12 @@ export default function App() {
   useEffect(() => {
     if (sessionUser) {
       const allowedTabsForRole = {
-        'Block Manager': ['dashboard', 'activity-feed', 'resource-requests', 'profile'],
-        'Block Supervisor': ['dashboard', 'activity-feed', 'resource-requests', 'profile'],
-        'Floor Manager': ['dashboard', 'activity-feed', 'resource-requests', 'profile'],
-        'Floor Supervisor': ['dashboard', 'activity-feed', 'resource-requests', 'profile'],
-        'Line Supervisor': ['dashboard', 'activity-feed', 'resource-requests', 'profile'],
-        'Assembly Line Supervisor': ['dashboard', 'activity-feed', 'resource-requests', 'profile'],
+        'Block Manager': ['dashboard', 'activity-feed', 'ie-dashboard', 'resource-requests', 'profile'],
+        'Block Supervisor': ['dashboard', 'activity-feed', 'ie-dashboard', 'resource-requests', 'profile'],
+        'Floor Manager': ['dashboard', 'activity-feed', 'ie-dashboard', 'resource-requests', 'profile'],
+        'Floor Supervisor': ['dashboard', 'activity-feed', 'ie-dashboard', 'resource-requests', 'profile'],
+        'Line Supervisor': ['dashboard', 'activity-feed', 'ie-dashboard', 'resource-requests', 'profile'],
+        'Assembly Line Supervisor': ['dashboard', 'activity-feed', 'ie-dashboard', 'resource-requests', 'profile'],
         'HR': ['dashboard', 'activity-feed', 'hr-dashboard', 'ie-dashboard', 'workers', 'mobile-logs', 'resource-requests', 'profile'],
         'Admin': ['dashboard', 'activity-feed', 'hr-dashboard', 'ie-dashboard', 'hierarchy-master', 'roles', 'workers', 'shifts', 'skills', 'allocations', 'reports', 'mobile-logs', 'resource-requests', 'profile'],
         'CEO': ['dashboard', 'activity-feed', 'hr-dashboard', 'ie-dashboard', 'hierarchy-master', 'roles', 'workers', 'shifts', 'skills', 'allocations', 'reports', 'mobile-logs', 'resource-requests', 'profile'],
@@ -391,7 +391,7 @@ export default function App() {
           />
         );
       case 'ie-dashboard':
-        return <IEDashboard API_URL={API_URL} currentUser={currentUser} />;
+        return <IEDashboard API_URL={API_URL} currentUser={currentUser} sessionUser={sessionUser} />;
       case 'resource-requests':
         return <ResourceRequests API_URL={API_URL} currentUser={currentUser} workers={workers} sessionUser={sessionUser} />;
       default:
@@ -565,7 +565,7 @@ export default function App() {
           {[
             { id: 'dashboard', icon: <LayoutDashboard size={17} />, label: 'Live Dashboard', badge: null, roles: ['Admin', 'HR', 'CEO', 'Block Manager', 'Block Supervisor', 'Floor Manager', 'Floor Supervisor', 'Line Supervisor', 'Assembly Line Supervisor'] },
             { id: 'activity-feed', icon: <Radio size={17} />, label: 'Live Activity Feed', badge: recentLogs.length > 0 ? recentLogs.length : null, roles: ['Admin', 'HR', 'CEO', 'Block Manager', 'Block Supervisor', 'Floor Manager', 'Floor Supervisor', 'Line Supervisor', 'Assembly Line Supervisor'] },
-            { id: 'ie-dashboard', icon: <FileSpreadsheet size={17} />, label: 'IE Headcount Plan', badge: null, roles: ['Admin', 'HR', 'CEO', 'IE'] },
+            { id: 'ie-dashboard', icon: <FileSpreadsheet size={17} />, label: 'IE Headcount Plan', badge: null, roles: ['Admin', 'HR', 'CEO', 'IE', 'Block Manager', 'Block Supervisor', 'Floor Manager', 'Floor Supervisor', 'Line Supervisor', 'Assembly Line Supervisor'] },
             { id: 'resource-requests', icon: <GitPullRequest size={17} />, label: 'Resource Requests', badge: null, roles: ['Admin', 'HR', 'CEO', 'Block Manager', 'Block Supervisor', 'Floor Manager', 'Floor Supervisor', 'Line Supervisor', 'Assembly Line Supervisor'] },
             { id: 'hr-dashboard', icon: <ArrowRightLeft size={17} />, label: 'HR Reassignment', badge: null, roles: ['Admin', 'HR'] },
             { id: 'workers', icon: <Users size={17} />, label: 'Employee Roster', badge: null, roles: ['Admin', 'HR'] },

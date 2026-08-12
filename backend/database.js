@@ -296,9 +296,8 @@ export async function initDatabase() {
   `);
 
   // IE Manpower Requirements per designation per date range
-  await db.query('DROP TABLE IF EXISTS ie_manpower_requirements');
   await db.query(`
-    CREATE TABLE ie_manpower_requirements (
+    CREATE TABLE IF NOT EXISTS ie_manpower_requirements (
       id INT AUTO_INCREMENT PRIMARY KEY,
       designation VARCHAR(100) NOT NULL,
       from_date DATE NOT NULL,
@@ -307,34 +306,16 @@ export async function initDatabase() {
       floor_id INT NOT NULL DEFAULT 0,
       line_id INT NOT NULL DEFAULT 0,
       product_name VARCHAR(100) NOT NULL DEFAULT 'General',
+      style_number VARCHAR(100) NOT NULL DEFAULT '',
       production_target INT NOT NULL DEFAULT 0,
       ie_manpower INT NOT NULL DEFAULT 0,
-      UNIQUE KEY uq_target (designation, from_date, to_date, block_id, floor_id, line_id, product_name)
+      UNIQUE KEY uq_target (designation, from_date, to_date, block_id, floor_id, line_id, product_name, style_number)
     )
   `);
 
-  // Seed default IE Manpower Requirements with a wide date range and default product/hierarchy
-  const defaultRequirements = [
-    { designation: 'STITCHING - SKILLED', ie_manpower: 115, product_name: 'Bag', production_target: 500 },
-    { designation: 'STITCHING - SEMI SKILLED', ie_manpower: 49, product_name: 'Bag', production_target: 300 },
-    { designation: 'EDGE INKING - SKILLED', ie_manpower: 57, product_name: 'Shoes', production_target: 200 },
-    { designation: 'EDGE INKING - SEMI SKILLED', ie_manpower: 52, product_name: 'Shoes', production_target: 150 },
-    { designation: 'TABLE WORKER - SKILLED', ie_manpower: 164, product_name: 'General', production_target: 0 },
-    { designation: 'TABLE WORKER - SEMI SKILLED', ie_manpower: 147, product_name: 'General', production_target: 0 },
-    { designation: 'AMS', ie_manpower: 29, product_name: 'General', production_target: 0 },
-    { designation: 'SAMPLE MAKER', ie_manpower: 0, product_name: 'General', production_target: 0 },
-    { designation: 'HEAVY M/C OPTR', ie_manpower: 0, product_name: 'General', production_target: 0 },
-    { designation: 'MACHINE OPTR', ie_manpower: 73, product_name: 'General', production_target: 0 },
-    { designation: 'PACKING', ie_manpower: 0, product_name: 'General', production_target: 0 },
-    { designation: 'CHECKER', ie_manpower: 0, product_name: 'General', production_target: 0 },
-    { designation: 'PILOT', ie_manpower: 0, product_name: 'General', production_target: 0 }
-  ];
-
-  for (const req of defaultRequirements) {
-    await db.query(`
-      INSERT INTO ie_manpower_requirements (designation, from_date, to_date, block_id, floor_id, line_id, product_name, production_target, ie_manpower)
-      VALUES (?, '2026-01-01', '2026-12-31', 0, 0, 0, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE ie_manpower = VALUES(ie_manpower)
-    `, [req.designation, req.product_name, req.production_target, req.ie_manpower]);
+  try {
+    await db.query(`ALTER TABLE ie_manpower_requirements ADD COLUMN style_number VARCHAR(100) NOT NULL DEFAULT ''`);
+  } catch (e) {
+    // Column already exists or error safely caught
   }
 }

@@ -434,6 +434,33 @@ export async function getIEHeadcount(req, res) {
       }
     }
 
+    let userBlockId = null;
+    let userFloorId = null;
+    let userRole = req.headers['x-user-role'] || '';
+
+    if (req.headers['x-user-id']) {
+      const [userRows] = await db.query('SELECT block_id, floor_id, role FROM users WHERE id = ?', [req.headers['x-user-id']]);
+      if (userRows.length > 0) {
+        userBlockId = userRows[0].block_id;
+        userFloorId = userRows[0].floor_id;
+        if (!userRole) userRole = userRows[0].role;
+      }
+    }
+
+    if (req.query.block_id) userBlockId = parseInt(req.query.block_id);
+    if (req.query.floor_id) userFloorId = parseInt(req.query.floor_id);
+
+    let whereClause = `((mr.from_date <= ? AND mr.to_date >= ?) OR (mr.from_date = ? AND mr.to_date = ?))`;
+    let queryParams = [toDate, fromDate, fromDate, toDate];
+
+    if (['Floor Manager', 'Floor Supervisor'].includes(userRole) && userFloorId > 0) {
+      whereClause += ` AND (mr.floor_id = ? OR mr.floor_id = 0)`;
+      queryParams.push(userFloorId);
+    } else if (['Block Manager', 'Block Supervisor'].includes(userRole) && userBlockId > 0) {
+      whereClause += ` AND (mr.block_id = ? OR mr.block_id = 0)`;
+      queryParams.push(userBlockId);
+    }
+
     // 3. Fetch saved ie_manpower requirements matching/overlapping this date range
     const [reqs] = await db.query(
       `SELECT 
@@ -445,6 +472,7 @@ export async function getIEHeadcount(req, res) {
         mr.floor_id,
         mr.line_id,
         mr.product_name,
+        mr.style_number,
         mr.production_target,
         mr.ie_manpower,
         COALESCE(b.name, 'All Blocks') AS block_name,
@@ -454,8 +482,8 @@ export async function getIEHeadcount(req, res) {
        LEFT JOIN blocks b ON mr.block_id = b.id
        LEFT JOIN floors f ON mr.floor_id = f.id
        LEFT JOIN assembly_lines al ON mr.line_id = al.id
-       WHERE (mr.from_date <= ? AND mr.to_date >= ?) OR (mr.from_date = ? AND mr.to_date = ?)`,
-      [toDate, fromDate, fromDate, toDate]
+       WHERE ${whereClause}`,
+      queryParams
     );
 
     // 4. Build report list of only saved requirements
@@ -471,6 +499,7 @@ export async function getIEHeadcount(req, res) {
       floor_name: r.floor_name,
       line_name: r.line_name,
       product_name: r.product_name,
+      style_number: r.style_number || '',
       production_target: r.production_target,
       ie_manpower: r.ie_manpower,
       present_count: 0
@@ -578,14 +607,14 @@ export async function updateIEHeadcount(req, res) {
     );
 
     for (const reqItem of requirements) {
-      const { designation, block_id, floor_id, line_id, product_name, production_target, ie_manpower, from_date: itemFrom, to_date: itemTo } = reqItem;
+      const { designation, block_id, floor_id, line_id, product_name, style_number, production_target, ie_manpower, from_date: itemFrom, to_date: itemTo } = reqItem;
       const targetFromDate = itemFrom || fromDate;
       const targetToDate = itemTo || toDate;
 
       await db.query(`
-        INSERT INTO ie_manpower_requirements (designation, from_date, to_date, block_id, floor_id, line_id, product_name, production_target, ie_manpower)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE ie_manpower = VALUES(ie_manpower), production_target = VALUES(production_target), product_name = VALUES(product_name)
+        INSERT INTO ie_manpower_requirements (designation, from_date, to_date, block_id, floor_id, line_id, product_name, style_number, production_target, ie_manpower)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE ie_manpower = VALUES(ie_manpower), production_target = VALUES(production_target), product_name = VALUES(product_name), style_number = VALUES(style_number)
       `, [
         designation, 
         targetFromDate, 
@@ -594,6 +623,7 @@ export async function updateIEHeadcount(req, res) {
         parseInt(floor_id) || 0, 
         parseInt(line_id) || 0, 
         product_name || 'General',
+        style_number || '',
         parseInt(production_target) || 0,
         parseInt(ie_manpower) || 0
       ]);

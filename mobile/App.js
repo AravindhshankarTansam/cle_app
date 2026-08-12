@@ -7,7 +7,7 @@ import UserInfoScreen from './components/UserInfoScreen';
 
 const { ConfigModule } = NativeModules;
 
-const DEFAULT_API_URL = 'http://192.168.29.153:5000';
+const DEFAULT_API_URL = 'http://192.168.29.63:5000';
 
 let currentSessionUser = null;
 

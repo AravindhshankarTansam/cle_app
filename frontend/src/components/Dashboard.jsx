@@ -761,7 +761,7 @@ export default function Dashboard({
         {/* Dynamic Hierarchy metrics / Physical Station Status */}
         <div>
           <div className="section-header">
-            <h3>{sessionUser && sessionUser.proficiency !== 'HR' ? 'Physical Station Status' : 'Assembly Line Hierarchy & Availability'}</h3>
+            <h3>Assembly Line Hierarchy & Availability</h3>
             <button className="btn btn-secondary" onClick={refreshData}>
               <RefreshCw size={14} /> Refresh
             </button>

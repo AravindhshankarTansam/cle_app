@@ -104,8 +104,8 @@ router.post('/requests/:id/reject', requireRole(['Admin', 'HR', 'Block Manager',
 router.get('/dashboard-summary', dashboardController.getDashboardSummary);
 
 // IE Headcount Plan/Report endpoints
-router.get('/ie/headcount', requireRole(['Admin', 'HR', 'CEO', 'IE']), dashboardController.getIEHeadcount);
-router.post('/ie/headcount', requireRole(['Admin', 'HR', 'IE']), dashboardController.updateIEHeadcount);
+router.get('/ie/headcount', requireRole(['Admin', 'HR', 'CEO', 'IE', 'Block Manager', 'Floor Manager', 'Block Supervisor', 'Floor Supervisor', 'Line Supervisor', 'Assembly Line Supervisor']), dashboardController.getIEHeadcount);
+router.post('/ie/headcount', requireRole(['Admin', 'HR', 'IE', 'Block Manager', 'Floor Manager']), dashboardController.updateIEHeadcount);
 
 // Mobile Missed Call logs
 router.post('/mobile/call-log', requireRole(['Admin', 'HR', 'Block Manager', 'Floor Manager', 'Line Supervisor', 'Block Supervisor', 'Floor Supervisor', 'Assembly Line Supervisor']), allocationController.createMobileCallLog);

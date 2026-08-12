@@ -6,7 +6,7 @@
  *
  * Only rendered for Admin users.
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,8 @@ import {
   Shield,
   Clock,
   Building2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react-native';
 
 export default function AutoCallLogStatus({
@@ -35,15 +37,34 @@ export default function AutoCallLogStatus({
   permissionGranted,
   isPolling,
   lastCheckedAt,
-  recentAutoLogs,
+  recentAutoLogs = [],
   pollNow,
 }) {
   const styles = createStyles(isDarkMode);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [recentAutoLogs.length]);
 
   const formatTime = (date) => {
     if (!date) return '—';
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
+
+  // Sort logs: Latest on top
+  const sortedLogs = [...recentAutoLogs].sort((a, b) => {
+    const timeA = a.timestamp || a.rawTimestamp || (a.id ? parseInt(a.id) : 0);
+    const timeB = b.timestamp || b.rawTimestamp || (b.id ? parseInt(b.id) : 0);
+    if (timeA && timeB) return timeB - timeA;
+    return 0;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedLogs.length / itemsPerPage));
+  const validPage = Math.min(currentPage, totalPages);
+  const startIndex = (validPage - 1) * itemsPerPage;
+  const currentLogs = sortedLogs.slice(startIndex, startIndex + itemsPerPage);
 
   // ── Unsupported (Expo Go) state ───────────────────────────────────────────
   if (!isSupported) {
@@ -51,7 +72,7 @@ export default function AutoCallLogStatus({
       <View style={styles.root}>
         <View style={styles.header}>
           <PhoneMissed size={16} color={isDarkMode ? '#f87171' : '#ef4444'} />
-          <Text style={styles.headerTitle}>Auto Missed Call Monitors</Text>
+          <Text style={styles.headerTitle}>Auto Missed Call Monitor</Text>
           <View style={styles.statusPill(false)}>
             <Text style={styles.statusPillText(false)}>INACTIVE</Text>
           </View>
@@ -131,7 +152,7 @@ export default function AutoCallLogStatus({
         <View style={styles.statusItem}>
           <PhoneCall size={12} color={isDarkMode ? '#9ca3af' : '#64748b'} />
           <Text style={styles.statusLabel}>Auto-logged:</Text>
-          <Text style={styles.statusValue}>{recentAutoLogs.length} call(s)</Text>
+          <Text style={styles.statusValue}>{sortedLogs.length} call(s)</Text>
         </View>
         <TouchableOpacity
           style={styles.scanBtn}
@@ -145,7 +166,7 @@ export default function AutoCallLogStatus({
       </View>
 
       {/* Auto-detected call list */}
-      {recentAutoLogs.length === 0 ? (
+      {sortedLogs.length === 0 ? (
         <View style={styles.emptyFeed}>
           <PhoneMissed size={20} color={isDarkMode ? '#374151' : '#d1d5db'} />
           <Text style={styles.emptyText}>
@@ -154,38 +175,70 @@ export default function AutoCallLogStatus({
         </View>
       ) : (
         <View style={styles.feed}>
-          {recentAutoLogs.slice(0, 8).map((log, i) => (
-            <View key={log.id || i} style={[styles.logRow, i === 0 && styles.logRowNew]}>
-              <View style={[styles.logIcon, { backgroundColor: log.matched ? (isDarkMode ? 'rgba(16,185,129,0.12)' : '#ecfdf5') : (isDarkMode ? 'rgba(245,158,11,0.1)' : '#fffbeb') }]}>
-                {log.matched ? (
-                  <CheckCircle2 size={14} color="#10b981" />
-                ) : (
-                  <AlertTriangle size={14} color="#f59e0b" />
+          {currentLogs.map((log, i) => {
+            const globalIndex = startIndex + i;
+            return (
+              <View key={log.id || globalIndex} style={[styles.logRow, globalIndex === 0 && styles.logRowNew]}>
+                <View style={[styles.logIcon, { backgroundColor: log.matched ? (isDarkMode ? 'rgba(16,185,129,0.12)' : '#ecfdf5') : (isDarkMode ? 'rgba(245,158,11,0.1)' : '#fffbeb') }]}>
+                  {log.matched ? (
+                    <CheckCircle2 size={14} color="#10b981" />
+                  ) : (
+                    <AlertTriangle size={14} color="#f59e0b" />
+                  )}
+                </View>
+                <View style={styles.logBody}>
+                  <Text style={styles.logPhone}>{log.phoneNumber}</Text>
+                  <Text style={styles.logMeta}>
+                    {log.matched ? (
+                      <>
+                        <Text style={{ color: '#10b981', fontWeight: '700' }}>{log.workerName}</Text>
+                        {log.departmentName && (
+                          <Text style={{ color: isDarkMode ? '#9ca3af' : '#64748b' }}>  ·  {log.departmentName}</Text>
+                        )}
+                      </>
+                    ) : (
+                      <Text style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>Unregistered number</Text>
+                    )}
+                  </Text>
+                </View>
+                <Text style={styles.logTime}>{log.timeStr}</Text>
+                {globalIndex === 0 && (
+                  <View style={styles.newBadge}>
+                    <Text style={styles.newBadgeText}>NEW</Text>
+                  </View>
                 )}
               </View>
-              <View style={styles.logBody}>
-                <Text style={styles.logPhone}>{log.phoneNumber}</Text>
-                <Text style={styles.logMeta}>
-                  {log.matched ? (
-                    <>
-                      <Text style={{ color: '#10b981', fontWeight: '700' }}>{log.workerName}</Text>
-                      {log.departmentName && (
-                        <Text style={{ color: isDarkMode ? '#9ca3af' : '#64748b' }}>  ·  {log.departmentName}</Text>
-                      )}
-                    </>
-                  ) : (
-                    <Text style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>Unregistered number</Text>
-                  )}
-                </Text>
-              </View>
-              <Text style={styles.logTime}>{log.timeStr}</Text>
-              {i === 0 && (
-                <View style={styles.newBadge}>
-                  <Text style={styles.newBadgeText}>NEW</Text>
-                </View>
-              )}
-            </View>
-          ))}
+            );
+          })}
+        </View>
+      )}
+
+      {/* Pagination Controls */}
+      {sortedLogs.length > itemsPerPage && (
+        <View style={styles.paginationRow}>
+          <TouchableOpacity
+            style={[styles.pageBtn, validPage === 1 && styles.pageBtnDisabled]}
+            onPress={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={validPage === 1}
+            activeOpacity={0.7}
+          >
+            <ChevronLeft size={14} color={validPage === 1 ? (isDarkMode ? '#4b5563' : '#9ca3af') : (isDarkMode ? '#a78bfa' : '#7c3aed')} />
+            <Text style={[styles.pageBtnText, validPage === 1 && styles.pageBtnTextDisabled]}>Previous</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.pageInfoText}>
+            Page <Text style={{ fontWeight: '700', color: isDarkMode ? '#f3f4f6' : '#111827' }}>{validPage}</Text> of {totalPages}
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.pageBtn, validPage === totalPages && styles.pageBtnDisabled]}
+            onPress={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            disabled={validPage === totalPages}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.pageBtnText, validPage === totalPages && styles.pageBtnTextDisabled]}>Next</Text>
+            <ChevronRight size={14} color={validPage === totalPages ? (isDarkMode ? '#4b5563' : '#9ca3af') : (isDarkMode ? '#a78bfa' : '#7c3aed')} />
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -397,5 +450,42 @@ const createStyles = (isDark) =>
       fontWeight: '800',
       color: '#fff',
       letterSpacing: 0.5,
+    },
+    paginationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : '#f1f5f9',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.01)' : '#fafafa',
+    },
+    pageBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+      backgroundColor: isDark ? 'rgba(139,92,246,0.1)' : '#f5f3ff',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(139,92,246,0.2)' : '#ede9fe',
+    },
+    pageBtnDisabled: {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#f1f5f9',
+      borderColor: isDark ? 'rgba(255,255,255,0.05)' : '#e2e8f0',
+    },
+    pageBtnText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: isDark ? '#a78bfa' : '#7c3aed',
+    },
+    pageBtnTextDisabled: {
+      color: isDark ? '#4b5563' : '#9ca3af',
+    },
+    pageInfoText: {
+      fontSize: 11,
+      color: isDark ? '#9ca3af' : '#64748b',
     },
   });

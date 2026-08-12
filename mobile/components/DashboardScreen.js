@@ -27,7 +27,15 @@ import {
   Sun,
   Moon,
   PhoneCall,
+  FileSpreadsheet,
+  Layers,
+  User,
+  MapPin,
+  ChevronDown,
+  ChevronUp,
+  XCircle
 } from 'lucide-react-native';
+import IEHeadcountSection from './IEHeadcountSection';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 3;
@@ -60,6 +68,8 @@ export default function DashboardScreen({ currentUser, apiUrl, onLogout, isDarkM
   });
 
   const [departments, setDepartments] = useState([]);
+  const [hierarchyData, setHierarchyData] = useState([]);
+  const [expandedLines, setExpandedLines] = useState({});
   const [stats, setStats] = useState({
     total_workers: 0,
     coming: 0,
@@ -70,6 +80,7 @@ export default function DashboardScreen({ currentUser, apiUrl, onLogout, isDarkM
   const [loadingData, setLoadingData] = useState(false);
   const [refreshError, setRefreshError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [activeSectionTab, setActiveSectionTab] = useState('all');
 
   // Animations
   const headerAnim = useRef(new Animated.Value(0)).current;
@@ -99,6 +110,13 @@ export default function DashboardScreen({ currentUser, apiUrl, onLogout, isDarkM
     ]).start();
   };
 
+  const toggleLineExpand = (lineId) => {
+    setExpandedLines(prev => ({
+      ...prev,
+      [lineId]: prev[lineId] === false ? true : false
+    }));
+  };
+
   const fetchAvailabilityData = async () => {
     setLoadingData(true);
     setRefreshError('');
@@ -115,12 +133,25 @@ export default function DashboardScreen({ currentUser, apiUrl, onLogout, isDarkM
           return 0;
         });
         setDepartments(sorted);
+        setHierarchyData(data.hierarchy || []);
+
+        // Expand all lines initially
+        const initialExpanded = {};
+        (data.hierarchy || []).forEach(block => {
+          (block.floors || []).forEach(floor => {
+            (floor.lines || []).forEach(line => {
+              initialExpanded[line.id] = true;
+            });
+          });
+        });
+        setExpandedLines(initialExpanded);
+
         setLastUpdated(new Date());
         // Reset and re-animate cards
         cardAnims.forEach(a => a.setValue(0));
         animateIn();
       } else {
-        setRefreshError('Failed to fetch department data.');
+        setRefreshError('Failed to fetch summary data.');
       }
     } catch (err) {
       console.error(err);
@@ -152,6 +183,46 @@ export default function DashboardScreen({ currentUser, apiUrl, onLogout, isDarkM
   const attendanceRate = stats.total_workers > 0
     ? Math.round((available / stats.total_workers) * 100)
     : 0;
+
+  const lineSummariesData = React.useMemo(() => {
+    if (!hierarchyData || hierarchyData.length === 0) {
+      return { lines: [], overall: { totalLines: 0, totalRoster: 0, totalPresent: 0, totalAbsent: 0, rate: 0 } };
+    }
+
+    const lines = [];
+    hierarchyData.forEach(block => {
+      (block.floors || []).forEach(floor => {
+        (floor.lines || []).forEach(line => {
+          const totalRoster = line.workers ? line.workers.length : 0;
+          const presentCount = line.present_count || 0;
+          const absentCount = line.absent_count !== undefined ? line.absent_count : Math.max(0, totalRoster - presentCount);
+          const rate = totalRoster > 0 ? Math.round((presentCount / totalRoster) * 100) : 0;
+
+          lines.push({
+            id: line.id,
+            name: line.name,
+            blockName: block.name,
+            floorName: floor.name,
+            totalRoster,
+            presentCount,
+            absentCount,
+            rate
+          });
+        });
+      });
+    });
+
+    const totalLines = lines.length;
+    const totalRoster = lines.reduce((sum, l) => sum + l.totalRoster, 0);
+    const totalPresent = lines.reduce((sum, l) => sum + l.presentCount, 0);
+    const totalAbsent = lines.reduce((sum, l) => sum + l.absentCount, 0);
+    const rate = totalRoster > 0 ? Math.round((totalPresent / totalRoster) * 100) : 0;
+
+    return {
+      lines,
+      overall: { totalLines, totalRoster, totalPresent, totalAbsent, rate }
+    };
+  }, [hierarchyData]);
 
   const formatTime = (date) => {
     if (!date) return '—';
@@ -314,118 +385,280 @@ export default function DashboardScreen({ currentUser, apiUrl, onLogout, isDarkM
           </View>
         ) : null}
 
-        {/* ── Section Title Row ── */}
-        <View style={styles.sectionRow}>
-          <View style={styles.sectionLeft}>
-            <Building2 size={15} color={isDarkMode ? "#6b7280" : "#94a3b8"} />
-            <Text style={styles.sectionTitle}>Department Roster</Text>
-          </View>
+        {/* ── Section Navigation Switcher ── */}
+        <View style={styles.sectionTabRow}>
           <TouchableOpacity
-            style={styles.refreshBtn}
-            onPress={fetchAvailabilityData}
-            disabled={loadingData}
-            activeOpacity={0.7}
+            style={[styles.sectionTabBtn, activeSectionTab === 'roster' && styles.sectionTabActive]}
+            onPress={() => setActiveSectionTab('roster')}
+            activeOpacity={0.8}
           >
-            <Animated.View style={{ transform: [{ rotate: spin }] }}>
-              <RefreshCw size={14} color={loadingData ? (isDarkMode ? '#6b7280' : '#9ca3af') : (isDarkMode ? '#a78bfa' : '#8b5cf6')} strokeWidth={2} />
-            </Animated.View>
-            <Text style={[styles.refreshText, { color: loadingData ? (isDarkMode ? '#4b5563' : '#9ca3af') : (isDarkMode ? '#a78bfa' : '#8b5cf6') }]}>
-              {lastUpdated ? formatTime(lastUpdated) : 'Sync'}
+            <Building2 size={13} color={activeSectionTab === 'roster' ? (isDarkMode ? '#a78bfa' : '#6d28d9') : (isDarkMode ? '#64748b' : '#94a3b8')} />
+            <Text 
+              numberOfLines={1}
+              adjustsFontSizeToFit={true}
+              style={[styles.sectionTabText, activeSectionTab === 'roster' && styles.sectionTabTextActive]}
+            >
+              Dept Roster
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.sectionTabBtn, activeSectionTab === 'ie_headcount' && styles.sectionTabActive]}
+            onPress={() => setActiveSectionTab('ie_headcount')}
+            activeOpacity={0.8}
+          >
+            <FileSpreadsheet size={13} color={activeSectionTab === 'ie_headcount' ? (isDarkMode ? '#a78bfa' : '#6d28d9') : (isDarkMode ? '#64748b' : '#94a3b8')} />
+            <Text 
+              numberOfLines={1}
+              adjustsFontSizeToFit={true}
+              style={[styles.sectionTabText, activeSectionTab === 'ie_headcount' && styles.sectionTabTextActive]}
+            >
+              IE Headcount
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.sectionTabBtn, activeSectionTab === 'all' && styles.sectionTabActive]}
+            onPress={() => setActiveSectionTab('all')}
+            activeOpacity={0.8}
+          >
+            <Layers size={13} color={activeSectionTab === 'all' ? (isDarkMode ? '#a78bfa' : '#6d28d9') : (isDarkMode ? '#64748b' : '#94a3b8')} />
+            <Text 
+              numberOfLines={1}
+              adjustsFontSizeToFit={true}
+              style={[styles.sectionTabText, activeSectionTab === 'all' && styles.sectionTabTextActive]}
+            >
+              All Views
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* ── Department Cards ── */}
-        {loadingData && departments.length === 0 ? (
-          <View style={styles.emptyState}>
-            <ActivityIndicator size="large" color="#7c3aed" />
-            <Text style={styles.emptyText}>Syncing roster data...</Text>
-          </View>
-        ) : (
-          departments.map((dept, index) => {
-            const available = dept.confirmed_today;
-            const min = dept.min_workers;
-            const ratio = min > 0 ? Math.min(1, available / min) : 0;
-            const pct = Math.round(ratio * 100);
-            const isShort = dept.shortage;
-            const missing = Math.max(0, min - available);
-
-            return (
-              <Animated.View
-                key={dept.id}
-                style={{
-                  opacity: cardAnims[index] || 1,
-                  transform: [
-                    {
-                      translateY: cardAnims[index]
-                        ? cardAnims[index].interpolate({ inputRange: [0, 1], outputRange: [24, 0] })
-                        : 0,
-                    },
-                  ],
-                }}
+        {/* ── Assembly Line Hierarchy & Availability Section ── */}
+        {(activeSectionTab === 'roster' || activeSectionTab === 'all') && (
+          <>
+            {/* ── Section Title Row ── */}
+            <View style={styles.sectionRow}>
+              <View style={styles.sectionLeft}>
+                <Building2 size={15} color={isDarkMode ? "#a78bfa" : "#7c3aed"} />
+                <Text style={styles.sectionTitle}>Assembly Line Hierarchy & Availability</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.refreshBtn}
+                onPress={fetchAvailabilityData}
+                disabled={loadingData}
+                activeOpacity={0.7}
               >
-                <View style={[styles.deptCard, isShort && styles.deptCardShort]}>
-                  {/* Left accent bar */}
-                  <View style={[styles.accentBar, { backgroundColor: isShort ? (isDarkMode ? '#f59e0b' : '#f59e0b') : '#10b981' }]} />
+                <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                  <RefreshCw size={14} color={loadingData ? (isDarkMode ? '#6b7280' : '#9ca3af') : (isDarkMode ? '#a78bfa' : '#8b5cf6')} strokeWidth={2} />
+                </Animated.View>
+                <Text style={[styles.refreshText, { color: loadingData ? (isDarkMode ? '#4b5563' : '#9ca3af') : (isDarkMode ? '#a78bfa' : '#8b5cf6') }]}>
+                  {lastUpdated ? formatTime(lastUpdated) : 'Sync'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-                  <View style={styles.deptCardInner}>
-                    {/* Top row */}
-                    <View style={styles.deptTop}>
-                      <View style={styles.deptNameWrap}>
-                        <Text style={styles.deptName} numberOfLines={1}>{dept.name}</Text>
-                        {isShort && (
-                          <View style={styles.missingTag}>
-                            <Text style={styles.missingTagText}>−{missing} short</Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={[styles.pctBadge, { backgroundColor: isShort ? (isDarkMode ? 'rgba(245,158,11,0.12)' : '#fffbeb') : (isDarkMode ? 'rgba(16,185,129,0.12)' : '#ecfdf5') }]}>
-                        <Text style={[styles.pctBadgeText, { color: isShort ? (isDarkMode ? '#fbbf24' : '#d97706') : (isDarkMode ? '#34d399' : '#059669') }]}>
-                          {pct}%
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Progress bar */}
-                    <View style={styles.progressBg}>
-                      <View
-                        style={[
-                          styles.progressFill,
-                          {
-                            width: `${pct}%`,
-                            backgroundColor: isShort ? '#f59e0b' : '#10b981',
-                          },
-                        ]}
-                      />
-                    </View>
-
-                    {/* Bottom stats */}
-                    <View style={styles.deptStats}>
-                      <View style={styles.statItem}>
-                        <Text style={styles.statVal}>{available}</Text>
-                        <Text style={styles.statLbl}>Confirmed</Text>
-                      </View>
-                      <View style={styles.statDivider} />
-                      <View style={styles.statItem}>
-                        <Text style={styles.statVal}>{min}</Text>
-                        <Text style={styles.statLbl}>Required</Text>
-                      </View>
-                      <View style={styles.statDivider} />
-                      <View style={styles.statItem}>
-                        <Text style={styles.statVal}>{dept.total_workers}</Text>
-                        <Text style={styles.statLbl}>Roster</Text>
-                      </View>
-                      <View style={styles.statDivider} />
-                      <View style={styles.statItem}>
-                        <Text style={styles.statVal}>{dept.allocated_today}</Text>
-                        <Text style={styles.statLbl}>Allocated</Text>
-                      </View>
-                    </View>
+            {/* ── Assembly Lines Overall Summary & Per-Line Breakdown ── */}
+            {lineSummariesData.lines.length > 0 && (
+              <View style={styles.summaryCardWrap}>
+                <View style={styles.summaryCardHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Building2 size={16} color="#7c3aed" />
+                    <Text style={styles.summaryCardTitle}>Assembly Lines Overall Summary</Text>
+                  </View>
+                  <View style={styles.summaryCountTag}>
+                    <Text style={styles.summaryCountTagText}>{lineSummariesData.overall.totalLines} Lines</Text>
                   </View>
                 </View>
-              </Animated.View>
-            );
-          })
+
+                {/* Grid metrics */}
+                <View style={styles.summaryGridRow}>
+                  <View style={styles.summaryMetricItem}>
+                    <Text style={styles.summaryMetricLbl}>Total Employees</Text>
+                    <Text style={styles.summaryMetricVal}>{lineSummariesData.overall.totalRoster}</Text>
+                  </View>
+                  <View style={[styles.summaryMetricItem, { backgroundColor: isDarkMode ? 'rgba(16,185,129,0.1)' : '#ecfdf5', borderColor: isDarkMode ? 'rgba(16,185,129,0.25)' : '#a7f3d0' }]}>
+                    <Text style={[styles.summaryMetricLbl, { color: '#10b981' }]}>Present</Text>
+                    <Text style={[styles.summaryMetricVal, { color: '#10b981' }]}>{lineSummariesData.overall.totalPresent}</Text>
+                  </View>
+                  <View style={[styles.summaryMetricItem, { backgroundColor: isDarkMode ? 'rgba(239,68,68,0.1)' : '#fef2f2', borderColor: isDarkMode ? 'rgba(239,68,68,0.25)' : '#fecaca' }]}>
+                    <Text style={[styles.summaryMetricLbl, { color: '#ef4444' }]}>Absent</Text>
+                    <Text style={[styles.summaryMetricVal, { color: '#ef4444' }]}>{lineSummariesData.overall.totalAbsent}</Text>
+                  </View>
+                  <View style={[styles.summaryMetricItem, { backgroundColor: isDarkMode ? 'rgba(139,92,246,0.1)' : '#f5f3ff', borderColor: isDarkMode ? 'rgba(139,92,246,0.25)' : '#ddd6fe' }]}>
+                    <Text style={[styles.summaryMetricLbl, { color: '#7c3aed' }]}>Attendance</Text>
+                    <Text style={[styles.summaryMetricVal, { color: '#7c3aed' }]}>{lineSummariesData.overall.rate}%</Text>
+                  </View>
+                </View>
+
+                {/* Per-Line Breakdown list */}
+                <Text style={styles.lineBreakdownHeading}>ASSEMBLY LINE SUMMARY BREAKDOWN</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -12, paddingHorizontal: 12, marginTop: 6 }}>
+                  {lineSummariesData.lines.map((l) => (
+                    <View key={l.id} style={styles.lineSummaryItemCard}>
+                      <Text style={styles.lineSummaryNameText}>Line {l.name}</Text>
+                      <Text style={styles.lineSummaryLocText}>{l.blockName} · Floor {l.floorName}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 4 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: isDarkMode ? '#e2e8f0' : '#1e293b' }}>Total: {l.totalRoster}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#10b981' }}>{l.presentCount} Pres</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: l.absentCount > 0 ? '#ef4444' : (isDarkMode ? '#9ca3af' : '#64748b') }}>{l.absentCount} Abs</Text>
+                      </View>
+                      <View style={[styles.ratePill, { backgroundColor: l.rate >= 90 ? '#10b981' : l.rate >= 75 ? '#f59e0b' : '#ef4444' }]}>
+                        <Text style={styles.ratePillText}>{l.rate}% Attendance</Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* ── Assembly Line Hierarchy Cards ── */}
+            {loadingData && hierarchyData.length === 0 ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator size="large" color="#7c3aed" />
+                <Text style={styles.emptyText}>Syncing line hierarchy data...</Text>
+              </View>
+            ) : hierarchyData.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>No assembly line hierarchy configured.</Text>
+              </View>
+            ) : (
+              hierarchyData.map((block) => {
+                const blockTotalWorkers = (block.floors || []).reduce((sumF, f) => sumF + (f.lines || []).reduce((sumL, l) => sumL + (l.workers ? l.workers.length : 0), 0), 0);
+
+                return (
+                  <View key={block.id} style={styles.blockWrap}>
+                    {/* Block Header */}
+                    <View style={styles.blockHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Building2 size={15} color="#7c3aed" />
+                        <Text style={styles.blockTitle}>{block.name}</Text>
+                      </View>
+                      <Text style={styles.blockMetaText}>
+                        Overall: <Text style={{ fontWeight: '700', color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>{blockTotalWorkers}</Text>
+                        {' · '}
+                        Pres: <Text style={{ fontWeight: '700', color: '#10b981' }}>{block.present_count}</Text>
+                      </Text>
+                    </View>
+
+                    {/* Floors under Block */}
+                    {(block.floors || []).map((floor) => {
+                      const floorTotalWorkers = (floor.lines || []).reduce((sumL, l) => sumL + (l.workers ? l.workers.length : 0), 0);
+
+                      return (
+                        <View key={floor.id} style={styles.floorWrap}>
+                          <View style={styles.floorHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              <MapPin size={13} color={isDarkMode ? '#a78bfa' : '#6d28d9'} />
+                              <Text style={styles.floorTitle}>{floor.name}</Text>
+                            </View>
+                            <Text style={styles.floorMetaText}>
+                              Overall: <Text style={{ fontWeight: '700', color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>{floorTotalWorkers}</Text>
+                              {' · '}
+                              Pres: <Text style={{ fontWeight: '700', color: '#10b981' }}>{floor.present_count}</Text>
+                            </Text>
+                          </View>
+
+                          {/* Assembly Lines under Floor */}
+                          {(floor.lines || []).map((line) => {
+                            const isExpanded = expandedLines[line.id] !== false;
+                            const presentCount = line.present_count || 0;
+                            const absentCount = line.absent_count !== undefined ? line.absent_count : (line.workers ? line.workers.filter(w => w.attendance_status === 'Absent').length : 0);
+                            const totalWorkers = line.workers ? line.workers.length : 0;
+
+                            return (
+                              <View key={line.id} style={styles.lineCard}>
+                                <TouchableOpacity
+                                  style={styles.lineCardHeader}
+                                  onPress={() => toggleLineExpand(line.id)}
+                                  activeOpacity={0.8}
+                                >
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.lineName}>{line.name}</Text>
+                                    <Text style={styles.lineSub}>
+                                      Overall Count: {totalWorkers} Employees
+                                    </Text>
+                                  </View>
+
+                              <View style={styles.lineBadges}>
+                                <View style={[styles.badgePill, styles.badgePillGreen]}>
+                                  <Text style={styles.badgeTextGreen}>{presentCount} Pres</Text>
+                                </View>
+                                <View style={[styles.badgePill, absentCount > 0 ? styles.badgePillRed : styles.badgePillGray]}>
+                                  <Text style={absentCount > 0 ? styles.badgeTextRed : styles.badgeTextGray}>{absentCount} Abs</Text>
+                                </View>
+                                {isExpanded ? (
+                                  <ChevronUp size={16} color={isDarkMode ? "#94a3b8" : "#64748b"} />
+                                ) : (
+                                  <ChevronDown size={16} color={isDarkMode ? "#94a3b8" : "#64748b"} />
+                                )}
+                              </View>
+                            </TouchableOpacity>
+
+                              {/* Employees assigned under Assembly Line */}
+                              {isExpanded && (
+                                <View style={styles.workerListWrap}>
+                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                    <Text style={styles.workerListHeading}>ASSIGNED EMPLOYEES ({totalWorkers})</Text>
+                                    {totalWorkers > 5 && (
+                                      <Text style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b', fontWeight: '500' }}>
+                                        Scroll to view all ({totalWorkers})
+                                      </Text>
+                                    )}
+                                  </View>
+
+                                  {line.workers && line.workers.length > 0 ? (
+                                    <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 260 }} showsVerticalScrollIndicator={true}>
+                                      {line.workers.map((worker) => {
+                                        const isPres = worker.attendance_status === 'Present' || worker.attendance_status === 'Coming';
+
+                                        return (
+                                          <View key={worker.id} style={styles.workerRow}>
+                                            <View style={styles.workerLeft}>
+                                              <View style={[styles.avatarDot, { backgroundColor: isPres ? '#10b981' : '#ef4444' }]}>
+                                                <User size={11} color="#ffffff" />
+                                              </View>
+                                              <View style={{ flex: 1 }}>
+                                                <Text style={styles.workerName}>{worker.name}</Text>
+                                                <Text style={styles.workerSub}>
+                                                  {worker.main_skill || 'General'} · {worker.proficiency || 'Skilled'}
+                                                </Text>
+                                              </View>
+                                            </View>
+
+                                            <View style={[styles.statusChip, isPres ? styles.chipPres : styles.chipAbs]}>
+                                              <Text style={[styles.statusChipText, isPres ? styles.chipTextPres : styles.chipTextAbs]}>
+                                                {isPres ? 'Present' : 'Absent'}
+                                              </Text>
+                                            </View>
+                                          </View>
+                                        );
+                                      })}
+                                    </ScrollView>
+                                  ) : (
+                                    <Text style={styles.noWorkersText}>No employees assigned to this line</Text>
+                                  )}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })
+            )}
+          </>
+        )}
+
+        {/* ── IE Headcount Plan Section ── */}
+        {(activeSectionTab === 'ie_headcount' || activeSectionTab === 'all') && (
+          <IEHeadcountSection
+            apiUrl={apiUrl}
+            currentUser={currentUser}
+            isDarkMode={isDarkMode}
+          />
         )}
 
         <View style={{ height: 90 }} />
@@ -441,6 +674,351 @@ const createStyles = (isDark) => StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: isDark ? '#060913' : '#f8fafc',
+  },
+  sectionTabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: isDark ? '#0f172a' : '#f1f5f9',
+    borderRadius: 12,
+    padding: 3,
+    marginTop: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: isDark ? '#1e293b' : '#e2e8f0',
+  },
+  sectionTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+  },
+  // ── Summary Card Styles ──
+  summaryCardWrap: {
+    backgroundColor: isDark ? '#111827' : '#ffffff',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(139,92,246,0.2)' : '#e0e7ff',
+  },
+  summaryCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  summaryCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: isDark ? '#f3f4f6' : '#0f172a',
+  },
+  summaryCountTag: {
+    backgroundColor: isDark ? 'rgba(139,92,246,0.15)' : '#ede9fe',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  summaryCountTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: isDark ? '#a78bfa' : '#7c3aed',
+  },
+  summaryGridRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  summaryMetricItem: {
+    flex: 1,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#e2e8f0',
+    borderRadius: 10,
+    padding: 8,
+    alignItems: 'center',
+  },
+  summaryMetricLbl: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: isDark ? '#9ca3af' : '#64748b',
+    marginBottom: 2,
+  },
+  summaryMetricVal: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: isDark ? '#f3f4f6' : '#0f172a',
+  },
+  lineBreakdownHeading: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: isDark ? '#9ca3af' : '#64748b',
+    marginBottom: 4,
+  },
+  lineSummaryItemCard: {
+    width: 140,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.06)' : '#e2e8f0',
+    borderRadius: 12,
+    padding: 10,
+    marginRight: 10,
+  },
+  lineSummaryNameText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: isDark ? '#a78bfa' : '#7c3aed',
+  },
+  lineSummaryLocText: {
+    fontSize: 10,
+    color: isDark ? '#9ca3af' : '#64748b',
+    marginBottom: 4,
+  },
+  ratePill: {
+    borderRadius: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  ratePillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+  // ── Admin FAB ──
+  fabContainer: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  fab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#7c3aed',
+    borderRadius: 99,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  fabText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  sectionTabActive: {
+    backgroundColor: isDark ? '#1e293b' : '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    borderColor: isDark ? 'rgba(167,139,250,0.3)' : '#ddd6fe',
+    borderWidth: 1,
+  },
+  sectionTabText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: isDark ? '#64748b' : '#64748b',
+  },
+  sectionTabTextActive: {
+    fontWeight: '700',
+    color: isDark ? '#a78bfa' : '#6d28d9',
+  },
+  blockWrap: {
+    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+    borderColor: isDark ? '#1e293b' : '#e2e8f0',
+    borderWidth: 1,
+    borderRadius: 14,
+    marginBottom: 14,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: isDark ? '#1e293b' : '#f1f5f9',
+    marginBottom: 10,
+  },
+  blockTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: isDark ? '#f8fafc' : '#0f172a',
+  },
+  blockMetaText: {
+    fontSize: 11,
+    color: isDark ? '#94a3b8' : '#64748b',
+  },
+  floorWrap: {
+    marginBottom: 10,
+    paddingLeft: 4,
+  },
+  floorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  floorTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: isDark ? '#a78bfa' : '#6d28d9',
+  },
+  floorMetaText: {
+    fontSize: 11,
+    color: isDark ? '#94a3b8' : '#64748b',
+  },
+  lineCard: {
+    backgroundColor: isDark ? '#182234' : '#faf5ff',
+    borderColor: isDark ? '#26334d' : '#f3e8ff',
+    borderWidth: 1,
+    borderRadius: 10,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  lineCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 10,
+  },
+  lineName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: isDark ? '#f1f5f9' : '#1e293b',
+  },
+  lineSub: {
+    fontSize: 10,
+    color: isDark ? '#94a3b8' : '#64748b',
+    marginTop: 2,
+  },
+  lineBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  badgePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  badgePillGreen: {
+    backgroundColor: isDark ? 'rgba(16,185,129,0.15)' : '#ecfdf5',
+    borderColor: isDark ? '#065f46' : '#a7f3d0',
+    borderWidth: 1,
+  },
+  badgePillRed: {
+    backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2',
+    borderColor: isDark ? '#7f1d1d' : '#fecaca',
+    borderWidth: 1,
+  },
+  badgePillGray: {
+    backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+  },
+  badgeTextGreen: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: isDark ? '#34d399' : '#059669',
+  },
+  badgeTextRed: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: isDark ? '#f87171' : '#dc2626',
+  },
+  badgeTextGray: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: isDark ? '#64748b' : '#94a3b8',
+  },
+  workerListWrap: {
+    padding: 10,
+    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: isDark ? '#1e293b' : '#f1f5f9',
+  },
+  workerListHeading: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: isDark ? '#64748b' : '#94a3b8',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  workerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: isDark ? '#1e293b' : '#f8fafc',
+  },
+  workerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  avatarDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workerName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: isDark ? '#e2e8f0' : '#1e293b',
+  },
+  workerSub: {
+    fontSize: 10,
+    color: isDark ? '#94a3b8' : '#64748b',
+  },
+  statusChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  chipPres: {
+    backgroundColor: isDark ? 'rgba(16,185,129,0.15)' : '#ecfdf5',
+    borderColor: isDark ? '#065f46' : '#a7f3d0',
+    borderWidth: 1,
+  },
+  chipAbs: {
+    backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2',
+    borderColor: isDark ? '#7f1d1d' : '#fecaca',
+    borderWidth: 1,
+  },
+  chipTextPres: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: isDark ? '#34d399' : '#059669',
+  },
+  chipTextAbs: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: isDark ? '#f87171' : '#dc2626',
+  },
+  noWorkersText: {
+    fontSize: 11,
+    color: isDark ? '#64748b' : '#94a3b8',
+    fontStyle: 'italic',
+    paddingVertical: 4,
   },
   bgAccent: {
     position: 'absolute',

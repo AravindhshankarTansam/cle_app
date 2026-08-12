@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Edit2, Check, X } from 'lucide-react';
+import { Building2, Users, CheckCircle2 } from 'lucide-react';
 
 const getLocalDateString = () => {
   const d = new Date();
@@ -22,7 +22,6 @@ const LinePieChart = ({ present, absent, total }) => {
   }
 
   const presentPercent = Math.round((present / total) * 100);
-  const absentPercent = 100 - presentPercent;
 
   if (present === total) {
     return (
@@ -81,9 +80,9 @@ const LinePieChart = ({ present, absent, total }) => {
         <path d={dPresent} fill="#10b981" />
       </svg>
       <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-primary)' }}>
-        <span style={{ color: '#10b981' }}>{present}P</span>
-        <span style={{ color: 'var(--text-muted)', margin: '0 2px' }}>/</span>
-        <span style={{ color: '#ef4444' }}>{absent}A</span>
+        <span style={{ color: '#10b981' }}>{present} Present</span>
+        <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>/</span>
+        <span style={{ color: '#ef4444' }}>{absent} Absent</span>
       </span>
     </div>
   );
@@ -94,10 +93,6 @@ export default function ShiftPlanning({ API_URL }) {
   const [workers, setWorkers] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Assembly Line Edit states
-  const [editingLineId, setEditingLineId] = useState(null);
-  const [editLineReqWorkers, setEditLineReqWorkers] = useState(20);
 
   const loadData = async () => {
     setLoading(true);
@@ -118,48 +113,18 @@ export default function ShiftPlanning({ API_URL }) {
     }
   };
 
-  const startEditLine = (line) => {
-    setEditingLineId(line.id);
-    setEditLineReqWorkers(line.required_workers);
-  };
-
-  const cancelEditLine = () => setEditingLineId(null);
-
-  const saveEditLine = async (line) => {
-    try {
-      const response = await fetch(`${API_URL}/api/assembly-lines/${line.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: line.name,
-          floor_id: line.floor_id,
-          required_workers: parseInt(editLineReqWorkers)
-        })
-      });
-      if (response.ok) {
-        setEditingLineId(null);
-        loadData();
-      } else {
-        const data = await response.json();
-        alert(data.error || 'Failed to update line alert threshold.');
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   useEffect(() => {
     loadData();
   }, [API_URL]);
 
   return (
     <div>
-      {/* Assembly Lines & Alert Thresholds */}
+      {/* Assembly Lines Roster */}
       <div className="glass-panel">
         <div className="section-header">
           <div>
-            <h3>Assembly Lines & Alert Thresholds</h3>
-            <p style={{ marginTop: '0.2rem' }}>Configure the minimum required manpower for each factory production line. Active worker counts falling below this threshold will flag shortages.</p>
+            <h3>Assembly Lines Roster</h3>
+            <p style={{ marginTop: '0.2rem' }}>Overview of registered total employees and live attendance per assembly line.</p>
           </div>
         </div>
 
@@ -172,11 +137,9 @@ export default function ShiftPlanning({ API_URL }) {
                 <tr>
                   <th>Block</th>
                   <th>Floor</th>
-                  <th>Line</th>
-                  <th style={{ textAlign: 'center' }}>Total Employees</th>
-                  <th>Alert Threshold</th>
-                  <th>IE Attendance Compare</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <th>Assembly Line</th>
+                  <th style={{ textAlign: 'center' }}>Total Registered Employees</th>
+                  <th>Live Attendance Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,36 +159,13 @@ export default function ShiftPlanning({ API_URL }) {
                       <td style={{ fontWeight: '600' }}>{line.block_name}</td>
                       <td>Floor {line.floor_name}</td>
                       <td style={{ fontWeight: '600', color: 'var(--accent-color)' }}>Line {line.name}</td>
-                      <td style={{ fontWeight: '650', textAlign: 'center' }}>{totalCount} Workers</td>
-                      <td>
-                        {editingLineId === line.id ? (
-                          <input 
-                            type="number" 
-                            className="form-input" 
-                            style={{ padding: '0.4rem', height: 'auto', width: '80px' }} 
-                            value={editLineReqWorkers} 
-                            onChange={(e) => setEditLineReqWorkers(parseInt(e.target.value))} 
-                          />
-                        ) : (
-                          <span className="badge warning" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <ShieldAlert size={12} /> {line.required_workers} Workers
-                          </span>
-                        )}
+                      <td style={{ fontWeight: '650', textAlign: 'center' }}>
+                        <span className="badge primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <Users size={12} /> {totalCount} Employees
+                        </span>
                       </td>
                       <td>
                         <LinePieChart present={presentCount} absent={absentCount} total={totalCount} />
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        {editingLineId === line.id ? (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                            <button type="button" className="btn-icon success" onClick={() => saveEditLine(line)} title="Save"><Check size={14} /></button>
-                            <button type="button" className="btn-icon delete" onClick={cancelEditLine} title="Cancel"><X size={14} /></button>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                            <button type="button" className="btn-icon primary" onClick={() => startEditLine(line)} title="Edit Threshold"><Edit2 size={14} /></button>
-                          </div>
-                        )}
                       </td>
                     </tr>
                   );

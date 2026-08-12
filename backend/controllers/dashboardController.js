@@ -112,6 +112,11 @@ export async function getDashboardSummary(req, res) {
         deptWorkerIds.includes(r.worker_id) && (r.status === 'Coming' || r.status === 'Present')
       ).length;
 
+      // How many in this department are marked Absent today
+      const absentToday = allowedAttendance.filter(r =>
+        deptWorkerIds.includes(r.worker_id) && r.status === 'Absent'
+      ).length;
+
       // How many in this department are allocated
       const allocatedToday = allowedAllocations.filter(a => a.department_id === dept.id).length;
 
@@ -121,6 +126,7 @@ export async function getDashboardSummary(req, res) {
         min_workers: dept.min_workers,
         total_workers: deptWorkerIds.length,
         confirmed_today: confirmedToday,
+        absent_today: absentToday,
         allocated_today: allocatedToday,
         shortage: confirmedToday < dept.min_workers
       });
@@ -148,6 +154,9 @@ export async function getDashboardSummary(req, res) {
       worker_phone: isAuthorized ? r.worker_phone : maskPhone(r.worker_phone)
     }));
 
+    // Generate hierarchy tree for mobile and web summary view
+    const { nestedHierarchy } = await buildHierarchyData(db, dateStr, req.user, allowedIds);
+
     res.json({
       date: dateStr,
       stats: {
@@ -158,12 +167,180 @@ export async function getDashboardSummary(req, res) {
         unconfirmed: Math.max(0, totalWorkersCount - comingCount - presentCount - absentCount)
       },
       departments: deptSummary,
+      hierarchy: nestedHierarchy,
       recent_activity: sanitizedActivity
     });
   } catch (error) {
     console.error('Error fetching dashboard summary:', error);
     res.status(500).json({ error: error.message });
   }
+}
+
+async function buildHierarchyData(db, dateStr, reqUser, allowedIds) {
+  const [blocks] = await db.query('SELECT * FROM blocks ORDER BY name ASC');
+  const [floors] = await db.query('SELECT * FROM floors ORDER BY name ASC');
+  const [lines] = await db.query('SELECT * FROM assembly_lines ORDER BY name ASC');
+
+  const [workers] = await db.query(`
+    SELECT w.*, sk.main_skill, al.name as home_line_name, f.name as home_floor_name, b.name as home_block_name
+    FROM users w
+    LEFT JOIN skills sk ON w.skill_id = sk.id
+    LEFT JOIN assembly_lines al ON w.line_id = al.id
+    LEFT JOIN floors f ON al.floor_id = f.id
+    LEFT JOIN blocks b ON f.block_id = b.id
+    WHERE w.status = 'Active' AND w.role = 'Employee'
+  `);
+
+  const [attendance] = await db.query(
+    'SELECT * FROM attendance WHERE date = ?',
+    [dateStr]
+  );
+
+  const [reassignments] = await db.query(
+    'SELECT * FROM line_allocations WHERE date = ?',
+    [dateStr]
+  );
+
+  const workersWithState = workers.map(w => {
+    const att = attendance.find(a => a.worker_id === w.id);
+    const attStatus = att ? att.status : 'Absent';
+    const reass = reassignments.find(r => r.worker_id === w.id);
+    
+    return {
+      ...w,
+      attendance_status: attStatus,
+      reassigned: !!reass,
+      allocated_line_id: reass ? reass.allocated_line_id : w.line_id,
+      original_line_id: w.line_id,
+      reassignment_reason: reass ? reass.reason : null,
+      is_reassigned_out: reass && reass.allocated_line_id !== w.line_id
+    };
+  });
+
+  let filteredBlocks = blocks;
+  let filteredFloors = floors;
+  let filteredLines = lines;
+
+  if (reqUser && !['Admin', 'HR', 'CEO', 'Manager', 'Supervisor', 'IE'].includes(reqUser.role)) {
+    const userId = reqUser.id;
+    const [supRows] = await db.query(
+      `SELECT w.line_id, 
+              COALESCE(w.floor_id, al.floor_id) as floor_id, 
+              COALESCE(w.block_id, f.block_id, f2.block_id) as block_id
+       FROM users w
+       LEFT JOIN assembly_lines al ON w.line_id = al.id
+       LEFT JOIN floors f ON al.floor_id = f.id
+       LEFT JOIN floors f2 ON w.floor_id = f2.id
+       WHERE w.id = ?`,
+      [userId]
+    );
+    if (supRows.length > 0) {
+      const sup = supRows[0];
+      if (reqUser.role === 'Block Manager' || reqUser.role === 'Block Supervisor') {
+        if (sup.block_id) {
+          filteredBlocks = blocks.filter(b => b.id === sup.block_id);
+          filteredFloors = floors.filter(f => f.block_id === sup.block_id);
+          filteredLines = lines.filter(l => filteredFloors.map(f => f.id).includes(l.floor_id));
+        }
+      } else if (reqUser.role === 'Floor Manager' || reqUser.role === 'Floor Supervisor') {
+        if (sup.floor_id) {
+          filteredBlocks = blocks.filter(b => b.id === sup.block_id);
+          filteredFloors = floors.filter(f => f.id === sup.floor_id);
+          filteredLines = lines.filter(l => l.floor_id === sup.floor_id);
+        }
+      } else if (reqUser.role === 'Line Supervisor' || reqUser.role === 'Assembly Line Supervisor') {
+        if (sup.line_id) {
+          filteredBlocks = blocks.filter(b => b.id === sup.block_id);
+          filteredFloors = floors.filter(f => f.id === sup.floor_id);
+          filteredLines = lines.filter(l => l.id === sup.line_id);
+        }
+      }
+    }
+  }
+
+  const isAuthorized = reqUser && ['Admin', 'HR'].includes(reqUser.role);
+
+  const lineStats = filteredLines.map(line => {
+    const currentWorkers = workersWithState.filter(w => 
+      allowedIds.includes(w.id) &&
+      w.allocated_line_id === line.id && 
+      (w.attendance_status === 'Coming' || w.attendance_status === 'Present')
+    );
+
+    const homePresentWorkers = workersWithState.filter(w =>
+      allowedIds.includes(w.id) &&
+      w.line_id === line.id && 
+      (w.attendance_status === 'Coming' || w.attendance_status === 'Present')
+    );
+
+    const reassignedIn = currentWorkers.filter(w => w.line_id !== line.id);
+    const reassignedOut = workersWithState.filter(w =>
+      allowedIds.includes(w.id) &&
+      w.line_id === line.id &&
+      w.allocated_line_id !== line.id &&
+      (w.attendance_status === 'Coming' || w.attendance_status === 'Present')
+    );
+
+    const workerList = workersWithState.filter(w => allowedIds.includes(w.id) && w.line_id === line.id);
+    const presentCount = homePresentWorkers.length - reassignedOut.length + reassignedIn.length;
+    const absentCount = workerList.filter(w => w.attendance_status === 'Absent').length;
+    
+    // Required Alert Threshold for Assembly Line (dynamic total roster & default required alert threshold)
+    const requiredWorkers = line.required_workers || 0;
+    const deficit = Math.max(0, requiredWorkers - presentCount);
+    const surplus = Math.max(0, presentCount - requiredWorkers);
+
+    const sanitizedWorkersList = workerList.map(w => ({
+      id: w.id,
+      name: w.name,
+      phone: isAuthorized ? w.phone : maskPhone(w.phone),
+      proficiency: w.proficiency,
+      main_skill: w.main_skill,
+      attendance_status: w.attendance_status,
+      reassigned: w.reassigned,
+      allocated_line_id: w.allocated_line_id,
+      is_reassigned_out: w.is_reassigned_out,
+      reassignment_reason: w.reassignment_reason
+    }));
+
+    return {
+      ...line,
+      required_workers: requiredWorkers,
+      total_roster: workerList.length,
+      present_count: presentCount,
+      absent_count: absentCount,
+      home_present_count: homePresentWorkers.length,
+      reassigned_in_count: reassignedIn.length,
+      reassigned_out_count: reassignedOut.length,
+      deficit,
+      surplus,
+      workers: sanitizedWorkersList
+    };
+  });
+
+  const nestedHierarchy = filteredBlocks.map(block => {
+    const blockFloors = filteredFloors.filter(f => f.block_id === block.id).map(floor => {
+      const floorLines = lineStats.filter(l => l.floor_id === floor.id);
+      const floorRequired = floorLines.reduce((acc, l) => acc + l.required_workers, 0);
+      const floorPresent = floorLines.reduce((acc, l) => acc + l.present_count, 0);
+      return {
+        ...floor,
+        required_workers: floorRequired,
+        present_count: floorPresent,
+        lines: floorLines
+      };
+    });
+    const blockRequired = blockFloors.reduce((acc, f) => acc + f.required_workers, 0);
+    const blockPresent = blockFloors.reduce((acc, f) => acc + f.present_count, 0);
+    return {
+      ...block,
+      required_workers: blockRequired,
+      present_count: blockPresent,
+      floors: blockFloors
+    };
+  });
+
+  return { nestedHierarchy, workersWithState };
 }
 
 export async function getHRDashboard(req, res) {
@@ -174,180 +351,8 @@ export async function getHRDashboard(req, res) {
     // Sync logs
     await syncCallLogsToAttendance(db, dateStr);
 
-    const [blocks] = await db.query('SELECT * FROM blocks ORDER BY name ASC');
-    const [floors] = await db.query('SELECT * FROM floors ORDER BY name ASC');
-    const [lines] = await db.query('SELECT * FROM assembly_lines ORDER BY name ASC');
-
-    const [workers] = await db.query(`
-      SELECT w.*, sk.main_skill, al.name as home_line_name, f.name as home_floor_name, b.name as home_block_name
-      FROM users w
-      LEFT JOIN skills sk ON w.skill_id = sk.id
-      LEFT JOIN assembly_lines al ON w.line_id = al.id
-      LEFT JOIN floors f ON al.floor_id = f.id
-      LEFT JOIN blocks b ON f.block_id = b.id
-      WHERE w.status = 'Active' AND w.role = 'Employee'
-    `);
-
-    const [attendance] = await db.query(
-      'SELECT * FROM attendance WHERE date = ?',
-      [dateStr]
-    );
-
-    const [reassignments] = await db.query(
-      'SELECT * FROM line_allocations WHERE date = ?',
-      [dateStr]
-    );
-
-    // Allowed worker IDs for scope
     const allowedIds = await getAllowedWorkerIds(req.user, db);
-
-    const workersWithState = workers.map(w => {
-      const att = attendance.find(a => a.worker_id === w.id);
-      const attStatus = att ? att.status : 'Absent';
-      const reass = reassignments.find(r => r.worker_id === w.id);
-      
-      return {
-        ...w,
-        attendance_status: attStatus,
-        reassigned: !!reass,
-        allocated_line_id: reass ? reass.allocated_line_id : w.line_id,
-        original_line_id: w.line_id,
-        reassignment_reason: reass ? reass.reason : null,
-        is_reassigned_out: reass && reass.allocated_line_id !== w.line_id
-      };
-    });
-
-    // Determine allowed hierarchy blocks/floors/lines based on supervisor profile
-    let filteredBlocks = blocks;
-    let filteredFloors = floors;
-    let filteredLines = lines;
-
-    if (req.user && !['Admin', 'HR', 'CEO', 'Manager', 'Supervisor', 'IE'].includes(req.user.role)) {
-      const [supRows] = await db.query(
-        `SELECT w.line_id, 
-                COALESCE(w.floor_id, al.floor_id) as floor_id, 
-                COALESCE(w.block_id, f.block_id, f2.block_id) as block_id
-         FROM users w
-         LEFT JOIN assembly_lines al ON w.line_id = al.id
-         LEFT JOIN floors f ON al.floor_id = f.id
-         LEFT JOIN floors f2 ON w.floor_id = f2.id
-         WHERE w.id = ?`,
-        [req.user.worker_id]
-      );
-      if (supRows.length > 0) {
-        const sup = supRows[0];
-        if (req.user.role === 'Block Manager' || req.user.role === 'Block Supervisor') {
-          filteredBlocks = blocks.filter(b => b.id === sup.block_id);
-          filteredFloors = floors.filter(f => f.block_id === sup.block_id);
-          filteredLines = lines.filter(l => filteredFloors.map(f => f.id).includes(l.floor_id));
-        } else if (req.user.role === 'Floor Manager' || req.user.role === 'Floor Supervisor') {
-          filteredBlocks = blocks.filter(b => b.id === sup.block_id);
-          filteredFloors = floors.filter(f => f.id === sup.floor_id);
-          filteredLines = lines.filter(l => l.floor_id === sup.floor_id);
-        } else if (req.user.role === 'Line Supervisor' || req.user.role === 'Assembly Line Supervisor') {
-          filteredBlocks = blocks.filter(b => b.id === sup.block_id);
-          filteredFloors = floors.filter(f => f.id === sup.floor_id);
-          filteredLines = lines.filter(l => l.id === sup.line_id);
-        }
-      }
-    }
-
-    // Fetch all active ie_manpower_requirements overlapping dateStr
-    const [ieReqs] = await db.query(
-      `SELECT line_id, SUM(ie_manpower) as total_ie_manpower
-       FROM ie_manpower_requirements
-       WHERE (from_date <= ? AND to_date >= ?) OR (from_date = ? AND to_date = ?)
-       GROUP BY line_id`,
-      [dateStr, dateStr, dateStr, dateStr]
-    );
-
-    // Create a map for quick lookup
-    const ieManpowerMap = new Map();
-    ieReqs.forEach(r => {
-      ieManpowerMap.set(r.line_id, parseInt(r.total_ie_manpower) || 0);
-    });
-
-    const lineStats = filteredLines.map(line => {
-      // Workers allocated to this line who are present
-      const currentWorkers = workersWithState.filter(w => 
-        allowedIds.includes(w.id) &&
-        w.allocated_line_id === line.id && 
-        (w.attendance_status === 'Coming' || w.attendance_status === 'Present')
-      );
-
-      // Home present workers
-      const homePresentWorkers = workersWithState.filter(w =>
-        allowedIds.includes(w.id) &&
-        w.line_id === line.id && 
-        (w.attendance_status === 'Coming' || w.attendance_status === 'Present')
-      );
-
-      const reassignedIn = currentWorkers.filter(w => w.line_id !== line.id);
-      const reassignedOut = workersWithState.filter(w =>
-        allowedIds.includes(w.id) &&
-        w.line_id === line.id &&
-        w.allocated_line_id !== line.id &&
-        (w.attendance_status === 'Coming' || w.attendance_status === 'Present')
-      );
-
-      // Workers originally belonging to this line
-      const workerList = workersWithState.filter(w => allowedIds.includes(w.id) && w.line_id === line.id);
-      const presentCount = homePresentWorkers.length - reassignedOut.length + reassignedIn.length;
-      
-      // Determine required workers from IE plan today, or fall back to default
-      const ieRequired = ieManpowerMap.has(line.id) ? ieManpowerMap.get(line.id) : line.required_workers;
-      const deficit = Math.max(0, ieRequired - presentCount);
-      const surplus = Math.max(0, presentCount - ieRequired);
-
-      // Mask phone numbers inside worker lists
-      const isAuthorized = req.user && ['Admin', 'HR'].includes(req.user.role);
-      const sanitizedWorkersList = workerList.map(w => ({
-        id: w.id,
-        name: w.name,
-        phone: isAuthorized ? w.phone : maskPhone(w.phone),
-        proficiency: w.proficiency,
-        main_skill: w.main_skill,
-        attendance_status: w.attendance_status,
-        reassigned: w.reassigned,
-        allocated_line_id: w.allocated_line_id,
-        is_reassigned_out: w.is_reassigned_out,
-        reassignment_reason: w.reassignment_reason
-      }));
-
-      return {
-        ...line,
-        required_workers: ieRequired,
-        present_count: presentCount,
-        home_present_count: homePresentWorkers.length,
-        reassigned_in_count: reassignedIn.length,
-        reassigned_out_count: reassignedOut.length,
-        deficit,
-        surplus,
-        workers: sanitizedWorkersList
-      };
-    });
-
-    const nestedHierarchy = filteredBlocks.map(block => {
-      const blockFloors = filteredFloors.filter(f => f.block_id === block.id).map(floor => {
-        const floorLines = lineStats.filter(l => l.floor_id === floor.id);
-        const floorRequired = floorLines.reduce((acc, l) => acc + l.required_workers, 0);
-        const floorPresent = floorLines.reduce((acc, l) => acc + l.present_count, 0);
-        return {
-          ...floor,
-          required_workers: floorRequired,
-          present_count: floorPresent,
-          lines: floorLines
-        };
-      });
-      const blockRequired = blockFloors.reduce((acc, f) => acc + f.required_workers, 0);
-      const blockPresent = blockFloors.reduce((acc, f) => acc + f.present_count, 0);
-      return {
-        ...block,
-        required_workers: blockRequired,
-        present_count: blockPresent,
-        floors: blockFloors
-      };
-    });
+    const { nestedHierarchy, workersWithState } = await buildHierarchyData(db, dateStr, req.user, allowedIds);
 
     const allPresentWorkers = workersWithState.filter(w => 
       allowedIds.includes(w.id) &&
@@ -436,24 +441,38 @@ export async function getIEHeadcount(req, res) {
 
     let userBlockId = null;
     let userFloorId = null;
+    let userLineId = null;
     let userRole = req.headers['x-user-role'] || '';
 
     if (req.headers['x-user-id']) {
-      const [userRows] = await db.query('SELECT block_id, floor_id, role FROM users WHERE id = ?', [req.headers['x-user-id']]);
+      const [userRows] = await db.query('SELECT block_id, floor_id, line_id, role FROM users WHERE id = ?', [req.headers['x-user-id']]);
       if (userRows.length > 0) {
         userBlockId = userRows[0].block_id;
         userFloorId = userRows[0].floor_id;
+        userLineId = userRows[0].line_id;
         if (!userRole) userRole = userRows[0].role;
       }
     }
 
     if (req.query.block_id) userBlockId = parseInt(req.query.block_id);
     if (req.query.floor_id) userFloorId = parseInt(req.query.floor_id);
+    if (req.query.line_id) userLineId = parseInt(req.query.line_id);
 
     let whereClause = `((mr.from_date <= ? AND mr.to_date >= ?) OR (mr.from_date = ? AND mr.to_date = ?))`;
     let queryParams = [toDate, fromDate, fromDate, toDate];
 
-    if (['Floor Manager', 'Floor Supervisor'].includes(userRole) && userFloorId > 0) {
+    if (['Assembly Line Supervisor', 'Line Supervisor', 'Supervisor'].includes(userRole)) {
+      if (userLineId > 0) {
+        whereClause += ` AND (mr.line_id = ? OR mr.line_id = 0)`;
+        queryParams.push(userLineId);
+      } else if (userFloorId > 0) {
+        whereClause += ` AND (mr.floor_id = ? OR mr.floor_id = 0)`;
+        queryParams.push(userFloorId);
+      } else if (userBlockId > 0) {
+        whereClause += ` AND (mr.block_id = ? OR mr.block_id = 0)`;
+        queryParams.push(userBlockId);
+      }
+    } else if (['Floor Manager', 'Floor Supervisor'].includes(userRole) && userFloorId > 0) {
       whereClause += ` AND (mr.floor_id = ? OR mr.floor_id = 0)`;
       queryParams.push(userFloorId);
     } else if (['Block Manager', 'Block Supervisor'].includes(userRole) && userBlockId > 0) {
@@ -502,7 +521,10 @@ export async function getIEHeadcount(req, res) {
       style_number: r.style_number || '',
       production_target: r.production_target,
       ie_manpower: r.ie_manpower,
-      present_count: 0
+      roster_count: 0,
+      present_count: 0,
+      roster_gap: 0,
+      present_gap: 0
     }));
 
     // 5. Fetch all active employee roster workers and their attendance status in the date range
@@ -521,10 +543,9 @@ export async function getIEHeadcount(req, res) {
       WHERE u.role = 'Employee' AND u.status = 'Active'
     `, [fromDate, toDate]);
 
-    // Match each worker to a dynamic designation and increment present count on matching hierarchy rows
+    // Match each worker to a dynamic designation and increment roster count / present count on matching hierarchy rows
     roster.forEach(worker => {
       const isPresent = worker.attendance_status === 'Coming' || worker.attendance_status === 'Present';
-      if (!isPresent) return;
 
       let matchedDsg = null;
       if (worker.skill_id) {
@@ -548,18 +569,26 @@ export async function getIEHeadcount(req, res) {
       }
 
       const checkMatched = matchedDsg ? matchedDsg : (worker.designation ? worker.designation.toUpperCase() : null);
-      if (!checkMatched) return;
 
       reportList.forEach(row => {
-        if (row.designation.toUpperCase() === checkMatched) {
-          const matchBlock = row.block_id === 0 || row.block_id === worker.block_id;
-          const matchFloor = row.floor_id === 0 || row.floor_id === worker.floor_id;
-          const matchLine = row.line_id === 0 || row.line_id === worker.line_id;
-          if (matchBlock && matchFloor && matchLine) {
+        const matchBlock = row.block_id === 0 || row.block_id === worker.block_id;
+        const matchFloor = row.floor_id === 0 || row.floor_id === worker.floor_id;
+        const matchLine = row.line_id === 0 || row.line_id === worker.line_id;
+        const matchDesignation = !row.designation || (checkMatched && row.designation.toUpperCase() === checkMatched);
+
+        if (matchBlock && matchFloor && matchLine && matchDesignation) {
+          row.roster_count += 1;
+          if (isPresent) {
             row.present_count += 1;
           }
         }
       });
+    });
+
+    // Calculate shortage gaps
+    reportList.forEach(row => {
+      row.roster_gap = Math.max(0, row.ie_manpower - row.roster_count);
+      row.present_gap = Math.max(0, row.ie_manpower - row.present_count);
     });
 
     // Sort report perfectly by hierarchy: Block -> Floor -> Line -> Designation

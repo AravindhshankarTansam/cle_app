@@ -104,7 +104,9 @@ export default function LoginScreen({ apiUrl, setApiUrl, onLoginSuccess, isDarkM
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim().toLowerCase(),
+          email: email.trim(),
+          username: email.trim(),
+          userId: email.trim(),
           password: password.trim(),
         }),
       });
@@ -180,7 +182,7 @@ export default function LoginScreen({ apiUrl, setApiUrl, onLoginSuccess, isDarkM
           >
             <Text style={styles.cardHeading}>Sign In</Text>
             <Text style={styles.cardSub}>
-              Restricted to Supervisors, Managers &amp; Admins
+              Restricted to Line Supervisors, Supervisors, Managers &amp; Admins
             </Text>
 
             {/* Error Banner */}
@@ -191,9 +193,9 @@ export default function LoginScreen({ apiUrl, setApiUrl, onLoginSuccess, isDarkM
               </View>
             ) : null}
 
-            {/* Email Input */}
+            {/* User ID / Email Input */}
             <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
+              <Text style={styles.fieldLabel}>USER ID / EMAIL ADDRESS</Text>
               <View
                 style={[
                   styles.inputRow,
@@ -207,7 +209,7 @@ export default function LoginScreen({ apiUrl, setApiUrl, onLoginSuccess, isDarkM
                 />
                 <TextInput
                   style={styles.textInput}
-                  placeholder="e.g. admin@khgroup.com"
+                  placeholder="Enter User ID or Email"
                   placeholderTextColor={isDarkMode ? "#4b5563" : "#9ca3af"}
                   value={email}
                   onChangeText={setEmail}

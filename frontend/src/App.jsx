@@ -24,7 +24,8 @@ import {
   Database,
   Shield,
   GitPullRequest,
-  Radio
+  Radio,
+  Building2
 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import WorkerManagement from './components/WorkerManagement';
@@ -576,7 +577,7 @@ export default function App() {
               badge: null,
               roles: ['Admin'],
               subItems: [
-                { id: 'shifts', icon: <Clock size={15} />, label: 'Shifts & Departments' },
+                { id: 'shifts', icon: <Building2 size={15} />, label: 'Assembly Lines Roster' },
                 { id: 'skills', icon: <Wrench size={15} />, label: 'Skill Master' },
                 { id: 'hierarchy-master', icon: <Layers size={15} />, label: 'Hierarchy Master' },
                 { id: 'roles', icon: <Shield size={15} />, label: 'Role Master' }

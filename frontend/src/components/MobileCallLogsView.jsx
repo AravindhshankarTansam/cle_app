@@ -1,5 +1,5 @@
-import React from 'react';
-import { Phone, User, Building2, CheckCircle, RefreshCw, Calendar, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Phone, User, Building2, CheckCircle, RefreshCw, Calendar, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 /**
  * MobileCallLogsView
@@ -7,7 +7,22 @@ import { Phone, User, Building2, CheckCircle, RefreshCw, Calendar, Clock } from 
  * Shows: caller number, matched worker, department, shortage count, date, time.
  * Also shows a "Shortage by Number" summary table at the top.
  */
-export default function MobileCallLogsView({ mobileCallLogs, shortageByNumber, onRefresh }) {
+export default function MobileCallLogsView({ mobileCallLogs = [], shortageByNumber = [], onRefresh }) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Sort logs by ID or timestamp descending (latest on top)
+  const sortedLogs = [...mobileCallLogs].sort((a, b) => {
+    const idA = a.id || 0;
+    const idB = b.id || 0;
+    return idB - idA;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedLogs.length / itemsPerPage));
+  const validPage = Math.min(currentPage, totalPages);
+  const startIndex = (validPage - 1) * itemsPerPage;
+  const currentLogs = sortedLogs.slice(startIndex, startIndex + itemsPerPage);
+
   return (
     <div>
       {/* ── Summary: Calls by Caller Number ── */}
@@ -81,10 +96,10 @@ export default function MobileCallLogsView({ mobileCallLogs, shortageByNumber, o
           <Phone size={16} />
           All Mobile-Captured Call Logs
         </h3>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{mobileCallLogs.length} records</span>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{sortedLogs.length} records</span>
       </div>
 
-      {mobileCallLogs.length === 0 ? (
+      {sortedLogs.length === 0 ? (
         <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           No call logs captured from mobile app yet.
         </div>
@@ -112,9 +127,9 @@ export default function MobileCallLogsView({ mobileCallLogs, shortageByNumber, o
               </tr>
             </thead>
             <tbody>
-              {mobileCallLogs.map((log, i) => (
+              {currentLogs.map((log, i) => (
                 <tr key={log.id || i} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <td style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: '0.75rem' }}>{i + 1}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: '0.75rem' }}>{startIndex + i + 1}</td>
                   <td style={tdStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <Phone size={13} color="var(--text-muted)" />
@@ -142,6 +157,31 @@ export default function MobileCallLogsView({ mobileCallLogs, shortageByNumber, o
               ))}
             </tbody>
           </table>
+
+          {/* Web Pagination Bar */}
+          {sortedLogs.length > itemsPerPage && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', borderTop: '1px solid var(--border-color)' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                disabled={validPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              >
+                <ChevronLeft size={14} /> Previous
+              </button>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Page <strong>{validPage}</strong> of {totalPages}
+              </span>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                disabled={validPage === totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -2,21 +2,28 @@ import { getDatabase } from '../database.js';
 import { hashPassword } from '../utils/password.js';
 
 export async function login(req, res) {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required.' });
+  const { email, username, userId, password } = req.body;
+  const rawInput = email || username || userId;
+  if (!rawInput || !password) {
+    return res.status(400).json({ error: 'User ID / Email and password are required.' });
   }
 
   try {
     const { db } = await getDatabase();
-    const cleanInput = email.trim();
-    const [users] = await db.query(
-      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(name) = ? OR phone = ? OR id = ?',
-      [cleanInput.toLowerCase(), cleanInput.toLowerCase(), cleanInput, cleanInput]
-    );
+    const cleanInput = String(rawInput).trim();
+
+    let sql = 'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(name) = ? OR phone = ?';
+    let params = [cleanInput.toLowerCase(), cleanInput.toLowerCase(), cleanInput];
+
+    if (/^\d+$/.test(cleanInput)) {
+      sql += ' OR id = ?';
+      params.push(parseInt(cleanInput, 10));
+    }
+
+    const [users] = await db.query(sql, params);
 
     if (users.length === 0) {
-      return res.status(401).json({ error: 'Invalid username/email or password.' });
+      return res.status(401).json({ error: 'Invalid User ID/email or password.' });
     }
 
     const user = users[0];

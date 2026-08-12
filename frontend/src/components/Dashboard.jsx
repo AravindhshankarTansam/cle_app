@@ -676,6 +676,45 @@ export default function Dashboard({
     );
   };
 
+  const allAssemblyLineSummaries = React.useMemo(() => {
+    if (!hierarchyData || !hierarchyData.hierarchy) {
+      return { lines: [], overall: { totalLines: 0, totalRoster: 0, totalPresent: 0, totalAbsent: 0, rate: 0 } };
+    }
+    const lines = [];
+    hierarchyData.hierarchy.forEach(block => {
+      (block.floors || []).forEach(floor => {
+        (floor.lines || []).forEach(line => {
+          const totalRoster = line.workers ? line.workers.length : 0;
+          const presentCount = line.present_count || 0;
+          const absentCount = line.absent_count !== undefined ? line.absent_count : Math.max(0, totalRoster - presentCount);
+          const rate = totalRoster > 0 ? Math.round((presentCount / totalRoster) * 100) : 0;
+
+          lines.push({
+            id: line.id,
+            name: line.name,
+            blockName: block.name,
+            floorName: floor.name,
+            totalRoster,
+            presentCount,
+            absentCount,
+            rate
+          });
+        });
+      });
+    });
+
+    const totalLines = lines.length;
+    const totalRoster = lines.reduce((sum, l) => sum + l.totalRoster, 0);
+    const totalPresent = lines.reduce((sum, l) => sum + l.presentCount, 0);
+    const totalAbsent = lines.reduce((sum, l) => sum + l.absentCount, 0);
+    const rate = totalRoster > 0 ? Math.round((totalPresent / totalRoster) * 100) : 0;
+
+    return {
+      lines,
+      overall: { totalLines, totalRoster, totalPresent, totalAbsent, rate }
+    };
+  }, [hierarchyData]);
+
   if (sessionUser && sessionUser.proficiency !== 'HR' && loadingHierarchy && !hierarchyData) {
     return (
       <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -754,6 +793,83 @@ export default function Dashboard({
             <span className="stat-label">Marked Absent</span>
           </div>
         </div>
+      </div>
+
+      {/* Assembly Lines Overall Summary & Line Breakdown Panel */}
+      <div className="glass-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Building2 size={18} color="var(--accent-color)" />
+              Assembly Lines Overall Summary
+            </h3>
+            <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Overall manpower statistics and individual line attendance breakdown
+            </p>
+          </div>
+          <span className="badge primary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem' }}>
+            {allAssemblyLineSummaries.overall.totalLines} Assembly Lines
+          </span>
+        </div>
+
+        {/* Overall Key Metrics Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '1rem',
+          marginBottom: '1.25rem'
+        }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '0.85rem 1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Overall Total Employees</span>
+            <span style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text-primary)' }}>{allAssemblyLineSummaries.overall.totalRoster}</span>
+          </div>
+          <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '10px', padding: '0.85rem 1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#10b981', display: 'block' }}>Overall Present</span>
+            <span style={{ fontSize: '1.4rem', fontWeight: '700', color: '#10b981' }}>{allAssemblyLineSummaries.overall.totalPresent}</span>
+          </div>
+          <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '10px', padding: '0.85rem 1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#ef4444', display: 'block' }}>Overall Absent</span>
+            <span style={{ fontSize: '1.4rem', fontWeight: '700', color: '#ef4444' }}>{allAssemblyLineSummaries.overall.totalAbsent}</span>
+          </div>
+          <div style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '10px', padding: '0.85rem 1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--accent-color)', display: 'block' }}>Overall Attendance Rate</span>
+            <span style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--accent-color)' }}>{allAssemblyLineSummaries.overall.rate}%</span>
+          </div>
+        </div>
+
+        {/* Assembly Line Summary Table */}
+        {allAssemblyLineSummaries.lines.length > 0 && (
+          <div style={{ overflowX: 'auto', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px' }}>
+            <table className="custom-table" style={{ margin: 0, fontSize: '0.85rem' }}>
+              <thead>
+                <tr>
+                  <th>Assembly Line</th>
+                  <th>Location (Block / Floor)</th>
+                  <th style={{ textAlign: 'center' }}>Total Registered Employees</th>
+                  <th style={{ textAlign: 'center' }}>Present</th>
+                  <th style={{ textAlign: 'center' }}>Absent</th>
+                  <th style={{ textAlign: 'right' }}>Attendance Rate %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allAssemblyLineSummaries.lines.map(line => (
+                  <tr key={line.id}>
+                    <td style={{ fontWeight: '600', color: 'var(--accent-color)' }}>Line {line.name}</td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{line.blockName} · Floor {line.floorName}</td>
+                    <td style={{ textAlign: 'center', fontWeight: '600' }}>{line.totalRoster}</td>
+                    <td style={{ textAlign: 'center', fontWeight: '600', color: '#10b981' }}>{line.presentCount}</td>
+                    <td style={{ textAlign: 'center', fontWeight: '600', color: line.absentCount > 0 ? '#ef4444' : 'var(--text-muted)' }}>{line.absentCount}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span className={`badge ${line.rate >= 90 ? 'success' : line.rate >= 75 ? 'warning' : 'danger'}`}>
+                        {line.rate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Main Layout */}
